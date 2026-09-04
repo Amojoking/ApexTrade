@@ -31,7 +31,18 @@
 - `get_current_user` accepts `session_token` cookie/Bearer first, then JWT `access_token`. Logout deletes session + clears both cookies.
 - Testing playbook: `/app/auth_testing.md`
 
+## Payments + Candlesticks (Jun 2026)
+- Stripe (Flow A claimable sandbox, GB account). Env: STRIPE_SECRET_KEY/PUBLISHABLE_KEY/ACCOUNT_ID/WEBHOOK_SECRET/MODE in backend/.env. Catalog via `backend/setup_stripe.py` (idempotent): `pro_monthly` $9.99/mo, `pro_yearly` $79/yr, `unlimited_lifetime` $49 one-time.
+- Tax mode: "full" (Stripe managed payments) — checkout tries card+crypto first (crypto not enabled on sandbox → falls back to managed payments → automatic_tax → plain).
+- `backend/payments.py`: `/api/payments/{plans,checkout,status/{sid},history}`, webhook `/api/stripe/webhook`. Fulfilment idempotent (`fulfilled` flag) → user.limits_removed or plan=pro/pro_until.
+- Free-tier limits: 5 watchlist symbols, 3 portfolio resets → HTTP 402; axios interceptor toasts with Upgrade action. `user.entitlements` in /auth/me.
+- Frontend: `/pricing`, `/payment/success` (polls status), `/payment/cancel`; header Upgrade button / Pro-Lifetime badge.
+- Candlestick chart default (Recharts ComposedChart + custom Bar shape), area toggle, persisted in localStorage `apex_chart_mode`.
+- Market data: dropped dead Yahoo v7 quote endpoint; quotes built from chart meta, browser UA, query1/query2 fallback, 15s/45s TTL + stale fallback (fixes 429s).
+- PayPal: NOT implemented (user didn't provide credentials; chose Stripe).
+
 ## Backend Endpoints
+- `/api/payments/{plans,checkout,status/{sid},history}`, `/api/stripe/webhook`
 - `/api/auth/{register,login,logout,me}`, `/api/auth/google/session`
 - `/api/market/{quote,chart/{symbol},search,curated,ticker}`
 - `/api/portfolio` GET, `/api/portfolio/reset`, `/api/portfolio/deposit`
@@ -42,7 +53,9 @@
 - Admin: admin@apextrade.com / admin123 (also usable via "Try Demo Account")
 
 ## P1 Backlog (post-1st-finish)
-- Candlestick chart mode toggle
+- ~~Candlestick chart mode toggle~~ (done)
+- PayPal checkout (needs user's PayPal client id/secret)
+- Stripe subscription cancel/portal + `customer.subscription.deleted` webhook to downgrade
 - Limit-order matching worker
 - Price alerts + notifications
 - Leaderboard / social trading feed

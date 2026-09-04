@@ -44,7 +44,7 @@ export default function Markets() {
     try {
       await api.post("/watchlist", { symbol, asset_type, name });
       toast.success(`Added ${symbol} to watchlist`);
-    } catch { toast.error("Failed to add"); }
+    } catch (err) { if (!err.handled) toast.error("Failed to add"); }
   };
 
   const gainers = useMemo(() =>

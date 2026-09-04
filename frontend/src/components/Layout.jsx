@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import TickerTape from "@/components/TickerTape";
-import { LayoutDashboard, LineChart, Store, Briefcase, ClipboardList, LogOut, TrendingUp } from "lucide-react";
+import { LayoutDashboard, Store, Briefcase, ClipboardList, LogOut, TrendingUp, Crown } from "lucide-react";
 import { fmtMoney } from "@/lib/format";
 
 const NAV = [
@@ -53,6 +53,17 @@ export default function Layout({ children }) {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-3">
+            {user?.entitlements?.unlimited ? (
+              <NavLink to="/pricing" data-testid="pro-badge"
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#FFB703]/40 bg-[#FFB703]/10 text-[#FFB703] text-xs font-bold uppercase tracking-wider">
+                <Crown size={12} /> {user.entitlements.limits_removed ? "Lifetime" : "Pro"}
+              </NavLink>
+            ) : (
+              <NavLink to="/pricing" data-testid="upgrade-nav-btn"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#2962FF] hover:bg-[#1E53E5] text-white text-xs font-semibold transition">
+                <Crown size={13} /> Upgrade
+              </NavLink>
+            )}
             <div className="flex items-center gap-3 px-3 py-1.5 bg-[#1E222D] rounded border border-[#2A2E39]">
               <span className="text-xs text-slate-500 uppercase tracking-wider">Cash</span>
               <span
@@ -66,9 +77,13 @@ export default function Layout({ children }) {
               className="flex items-center gap-2 px-2 py-1 border border-[#2A2E39] rounded"
               data-testid="user-account-menu"
             >
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#2962FF] to-[#8A2BE2] flex items-center justify-center text-xs font-bold">
-                {(user?.name || user?.email || "?")[0]?.toUpperCase()}
-              </div>
+              {user?.picture ? (
+                <img src={user.picture} alt="" referrerPolicy="no-referrer" className="w-7 h-7 rounded-full object-cover" />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#2962FF] to-[#8A2BE2] flex items-center justify-center text-xs font-bold">
+                  {(user?.name || user?.email || "?")[0]?.toUpperCase()}
+                </div>
+              )}
               <span className="text-xs text-slate-300 hidden md:inline">{user?.name || user?.email}</span>
             </div>
             <button

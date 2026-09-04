@@ -11,6 +11,9 @@ import Markets from "@/pages/Markets";
 import Trade from "@/pages/Trade";
 import Portfolio from "@/pages/Portfolio";
 import Orders from "@/pages/Orders";
+import Pricing from "@/pages/Pricing";
+import PaymentSuccess from "@/pages/PaymentSuccess";
+import PaymentCancel from "@/pages/PaymentCancel";
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -41,6 +44,9 @@ function AppRouter() {
       <Route path="/trade/:symbol" element={<Protected><Trade /></Protected>} />
       <Route path="/portfolio" element={<Protected><Portfolio /></Protected>} />
       <Route path="/orders" element={<Protected><Orders /></Protected>} />
+      <Route path="/pricing" element={<Protected><Pricing /></Protected>} />
+      <Route path="/payment/success" element={<Protected><PaymentSuccess /></Protected>} />
+      <Route path="/payment/cancel" element={<Protected><PaymentCancel /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

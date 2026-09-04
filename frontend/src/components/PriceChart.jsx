@@ -1,9 +1,31 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  AreaChart, Area, ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
+import { CandlestickChart, AreaChart as AreaIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { fmtNumber, trendClass, fmtPct } from "@/lib/format";
+
+const UP = "#089981", DOWN = "#F23645";
+
+// Bar range [l,h] maps to y..y+height; derive body from that scale
+const Candle = ({ x, y, width, height, payload }) => {
+  const { o, c, h, l } = payload;
+  if ([o, c, h, l].some((v) => v === null || v === undefined)) return null;
+  const span = h - l || 1e-9;
+  const px = height / span;
+  const color = c >= o ? UP : DOWN;
+  const top = y + (h - Math.max(o, c)) * px;
+  const bodyH = Math.max(1, Math.abs(o - c) * px);
+  const cx = x + width / 2;
+  const bw = Math.max(1.5, width * 0.65);
+  return (
+    <g>
+      <line x1={cx} x2={cx} y1={y} y2={y + height} stroke={color} strokeWidth={1} />
+      <rect x={cx - bw / 2} y={top} width={bw} height={bodyH} fill={color} />
+    </g>
+  );
+};
 
 const TF = [
   { key: "1D", range: "1d", interval: "5m" },
@@ -27,9 +49,12 @@ const CustomTip = ({ active, payload, label }) => {
 
 export default function PriceChart({ symbol, assetType = "stock", height = 380 }) {
   const [range, setRange] = useState(TF[0]);
+  const [mode, setMode] = useState(() => localStorage.getItem("apex_chart_mode") || "candle");
   const [data, setData] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const setChartMode = (m) => { setMode(m); localStorage.setItem("apex_chart_mode", m); };
 
   useEffect(() => {
     let alive = true;
@@ -66,24 +91,64 @@ export default function PriceChart({ symbol, assetType = "stock", height = 380 }
             {change.abs >= 0 ? "+" : ""}{fmtNumber(change.abs)} ({fmtPct(change.pct)})
           </div>
         </div>
-        <div className="flex items-center gap-1 bg-[#0B0E14] border border-[#2A2E39] rounded p-0.5">
-          {TF.map((t) => (
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5 bg-[#0B0E14] border border-[#2A2E39] rounded p-0.5">
             <button
-              key={t.key}
-              data-testid={`timeframe-${t.key.toLowerCase()}-btn`}
-              onClick={() => setRange(t)}
-              className={`text-xs px-2 py-1 rounded transition font-medium ${
-                range.key === t.key ? "bg-[#2962FF] text-white" : "text-slate-400 hover:text-slate-200"
-              }`}
-            >{t.key}</button>
-          ))}
+              data-testid="chart-mode-candle-btn" title="Candlesticks"
+              onClick={() => setChartMode("candle")}
+              className={`p-1 rounded transition ${mode === "candle" ? "bg-[#2962FF] text-white" : "text-slate-400 hover:text-slate-200"}`}
+            ><CandlestickChart size={14} /></button>
+            <button
+              data-testid="chart-mode-area-btn" title="Area"
+              onClick={() => setChartMode("area")}
+              className={`p-1 rounded transition ${mode === "area" ? "bg-[#2962FF] text-white" : "text-slate-400 hover:text-slate-200"}`}
+            ><AreaIcon size={14} /></button>
+          </div>
+          <div className="flex items-center gap-1 bg-[#0B0E14] border border-[#2A2E39] rounded p-0.5">
+            {TF.map((t) => (
+              <button
+                key={t.key}
+                data-testid={`timeframe-${t.key.toLowerCase()}-btn`}
+                onClick={() => setRange(t)}
+                className={`text-xs px-2 py-1 rounded transition font-medium ${
+                  range.key === t.key ? "bg-[#2962FF] text-white" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >{t.key}</button>
+            ))}
+          </div>
         </div>
       </div>
-      <div style={{ height }} className="p-2">
+      <div style={{ height }} className="p-2" data-testid={`chart-mode-${mode}`}>
         {loading ? (
           <div className="h-full flex items-center justify-center text-slate-500 text-sm">Loading chart…</div>
         ) : data.length === 0 ? (
           <div className="h-full flex items-center justify-center text-slate-500 text-sm">No data available</div>
+        ) : mode === "candle" ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="#1E222D" vertical={false} />
+              <XAxis
+                dataKey="t"
+                tick={{ fill: "#787B86", fontSize: 10, fontFamily: "JetBrains Mono" }}
+                axisLine={{ stroke: "#2A2E39" }} tickLine={false}
+                tickFormatter={(t) => {
+                  const d = new Date(t * 1000);
+                  return range.key === "1D"
+                    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    : d.toLocaleDateString([], { month: "short", day: "numeric" });
+                }}
+                minTickGap={40}
+              />
+              <YAxis
+                orientation="right" domain={["auto", "auto"]}
+                tick={{ fill: "#787B86", fontSize: 10, fontFamily: "JetBrains Mono" }}
+                axisLine={{ stroke: "#2A2E39" }} tickLine={false} width={65}
+                tickFormatter={(v) => fmtNumber(v, v < 1 ? 4 : 2)}
+              />
+              <Tooltip content={<CustomTip />} cursor={{ fill: "#1E222D", opacity: 0.4 }} />
+              <Bar dataKey={(d) => [d.l, d.h]} shape={<Candle />} isAnimationActive={false} maxBarSize={14} />
+            </ComposedChart>
+          </ResponsiveContainer>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>

@@ -5,6 +5,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 import os
+import asyncio
 import logging
 import time
 import bcrypt
@@ -17,6 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from bson import ObjectId
+from payments import entitlements, make_router as make_payments_router, make_webhook_router, FREE_WATCHLIST_MAX, FREE_RESET_MAX
 
 # ---------- Setup ----------
 mongo_url = os.environ['MONGO_URL']
@@ -130,10 +132,16 @@ class WatchIn(BaseModel):
     name: Optional[str] = None
 
 # ---------- Market Data (Yahoo Finance public JSON) ----------
-YF_BASE = "https://query1.finance.yahoo.com"
-_YF_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ApexTradeBot/1.0)"}
+YF_HOSTS = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"]
+_YF_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Accept": "application/json,text/plain,*/*", "Accept-Language": "en-US,en;q=0.9",
+}
+QUOTE_TTL, CHART_TTL = 15, 45
 _quote_cache = {}   # symbol -> (ts, data)
 _chart_cache = {}   # (symbol,range,interval) -> (ts, data)
+_yf_client = httpx.AsyncClient(timeout=10, headers=_YF_HEADERS)
+_yf_sem = asyncio.Semaphore(6)
 
 def _normalize_symbol(symbol: str, asset_type: str) -> str:
     s = symbol.upper().strip()
@@ -141,51 +149,77 @@ def _normalize_symbol(symbol: str, asset_type: str) -> str:
         return f"{s}-USD"
     return s
 
+async def _yf_get(path: str) -> Optional[dict]:
+    async with _yf_sem:
+        for host in YF_HOSTS:
+            try:
+                r = await _yf_client.get(host + path)
+            except httpx.HTTPError:
+                continue
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code in (404, 400):
+                return None
+    return None
+
+def _quote_from_meta(symbol: str, meta: dict) -> dict:
+    price = meta.get("regularMarketPrice")
+    prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+    change = (price - prev) if price is not None and prev else 0.0
+    return {
+        "symbol": meta.get("symbol", symbol),
+        "shortName": meta.get("shortName") or meta.get("longName") or symbol,
+        "longName": meta.get("longName") or meta.get("shortName") or symbol,
+        "regularMarketPrice": price,
+        "regularMarketPreviousClose": prev,
+        "regularMarketOpen": meta.get("regularMarketOpen"),
+        "regularMarketChange": change,
+        "regularMarketChangePercent": (change / prev * 100) if prev else 0.0,
+        "regularMarketDayHigh": meta.get("regularMarketDayHigh"),
+        "regularMarketDayLow": meta.get("regularMarketDayLow"),
+        "regularMarketVolume": meta.get("regularMarketVolume"),
+        "fiftyTwoWeekHigh": meta.get("fiftyTwoWeekHigh"),
+        "fiftyTwoWeekLow": meta.get("fiftyTwoWeekLow"),
+        "currency": meta.get("currency", "USD"),
+        "quoteType": meta.get("instrumentType"),
+    }
+
+async def _quote_one(symbol: str) -> Optional[dict]:
+    now = time.time()
+    cached = _quote_cache.get(symbol)
+    if cached and now - cached[0] < QUOTE_TTL:
+        return cached[1]
+    try:
+        chart = await yf_chart(symbol, "1d", "5m")
+    except HTTPException:
+        return cached[1] if cached else None
+    q = _quote_from_meta(symbol, chart.get("meta") or {})
+    if chart["candles"]:
+        if q["regularMarketPrice"] is None:
+            q["regularMarketPrice"] = chart["candles"][-1]["c"]
+        if q["regularMarketOpen"] is None:
+            q["regularMarketOpen"] = chart["candles"][0]["o"]
+    _quote_cache[symbol] = (now, q)
+    return q
+
 async def yf_quote(symbols: List[str]) -> List[dict]:
     if not symbols:
         return []
-    key = ",".join(sorted(set(symbols)))
-    now = time.time()
-    if key in _quote_cache and now - _quote_cache[key][0] < 5:
-        return _quote_cache[key][1]
-    url = f"{YF_BASE}/v7/finance/quote?symbols={','.join(symbols)}"
-    async with httpx.AsyncClient(timeout=10, headers=_YF_HEADERS) as c:
-        r = await c.get(url)
-        if r.status_code != 200:
-            # Fallback via chart endpoint per symbol
-            results = []
-            for s in symbols:
-                q = await yf_chart(s, "1d", "1m")
-                meta = q.get("meta", {})
-                if meta:
-                    results.append({
-                        "symbol": s,
-                        "shortName": meta.get("symbol", s),
-                        "regularMarketPrice": meta.get("regularMarketPrice"),
-                        "regularMarketPreviousClose": meta.get("chartPreviousClose"),
-                        "regularMarketChange": (meta.get("regularMarketPrice") or 0) - (meta.get("chartPreviousClose") or 0),
-                        "regularMarketChangePercent": ((meta.get("regularMarketPrice") or 0) - (meta.get("chartPreviousClose") or 0)) / (meta.get("chartPreviousClose") or 1) * 100,
-                        "regularMarketDayHigh": meta.get("regularMarketDayHigh"),
-                        "regularMarketDayLow": meta.get("regularMarketDayLow"),
-                        "regularMarketVolume": meta.get("regularMarketVolume"),
-                        "currency": meta.get("currency", "USD"),
-                    })
-            _quote_cache[key] = (now, results)
-            return results
-        data = r.json().get("quoteResponse", {}).get("result", [])
-    _quote_cache[key] = (now, data)
-    return data
+    uniq = list(dict.fromkeys(s for s in symbols if s))
+    results = await asyncio.gather(*(_quote_one(s) for s in uniq))
+    return [q for q in results if q]
 
 async def yf_chart(symbol: str, range_: str = "1d", interval: str = "5m") -> dict:
     key = (symbol, range_, interval)
     now = time.time()
-    if key in _chart_cache and now - _chart_cache[key][0] < 15:
-        return _chart_cache[key][1]
-    url = f"{YF_BASE}/v8/finance/chart/{symbol}?range={range_}&interval={interval}"
-    async with httpx.AsyncClient(timeout=10, headers=_YF_HEADERS) as c:
-        r = await c.get(url)
-        r.raise_for_status()
-        j = r.json()
+    cached = _chart_cache.get(key)
+    if cached and now - cached[0] < CHART_TTL:
+        return cached[1]
+    j = await _yf_get(f"/v8/finance/chart/{symbol}?range={range_}&interval={interval}")
+    if j is None:
+        if cached:
+            return cached[1]
+        raise HTTPException(503, "Market data temporarily unavailable, retrying shortly")
     result = (j.get("chart") or {}).get("result") or []
     if not result:
         raise HTTPException(404, "Symbol not found")
@@ -208,12 +242,8 @@ async def yf_chart(symbol: str, range_: str = "1d", interval: str = "5m") -> dic
     return payload
 
 async def yf_search(query: str) -> List[dict]:
-    url = f"{YF_BASE}/v1/finance/search?q={query}&quotesCount=15&newsCount=0"
-    async with httpx.AsyncClient(timeout=10, headers=_YF_HEADERS) as c:
-        r = await c.get(url)
-        if r.status_code != 200:
-            return []
-        return r.json().get("quotes", [])
+    j = await _yf_get(f"/v1/finance/search?q={query}&quotesCount=15&newsCount=0")
+    return (j or {}).get("quotes", [])
 
 # ---------- Startup: seed admin + indexes ----------
 @app.on_event("startup")
@@ -251,7 +281,8 @@ def user_public(u: dict) -> dict:
     return {"id": u.get("id") or str(u.get("_id")), "email": u["email"], "name": u.get("name", ""),
             "role": u.get("role", "user"), "cash_balance": u.get("cash_balance", 0.0),
             "picture": u.get("picture"),
-            "starting_balance": u.get("starting_balance", 100000.0)}
+            "starting_balance": u.get("starting_balance", 100000.0),
+            "entitlements": entitlements(u)}
 
 @api.post("/auth/register")
 async def register(body: RegisterIn, response: Response):
@@ -471,12 +502,16 @@ async def get_portfolio(user: dict = Depends(get_current_user)):
 @api.post("/portfolio/reset")
 async def reset_portfolio(body: ResetIn, user: dict = Depends(get_current_user)):
     uid = user["id"]
+    ent = entitlements(user)
+    if not ent["unlimited"] and ent["resets_used"] >= FREE_RESET_MAX:
+        raise HTTPException(402, f"Free plan allows {FREE_RESET_MAX} portfolio resets. Upgrade to Pro for unlimited resets.")
     await db.positions.delete_many({"user_id": uid})
     await db.orders.delete_many({"user_id": uid})
     await db.users.update_one(
         {"_id": ObjectId(uid)},
         {"$set": {"cash_balance": float(body.new_balance),
-                  "starting_balance": float(body.new_balance)}}
+                  "starting_balance": float(body.new_balance)},
+         "$inc": {"reset_count": 1}}
     )
     return {"ok": True, "new_balance": body.new_balance}
 
@@ -588,6 +623,12 @@ async def get_watchlist(user: dict = Depends(get_current_user)):
 @api.post("/watchlist")
 async def add_watch(body: WatchIn, user: dict = Depends(get_current_user)):
     normalized = _normalize_symbol(body.symbol, body.asset_type)
+    ent = entitlements(user)
+    if not ent["unlimited"]:
+        count = await db.watchlist.count_documents({"user_id": user["id"]})
+        exists = await db.watchlist.find_one({"user_id": user["id"], "symbol": normalized})
+        if count >= FREE_WATCHLIST_MAX and not exists:
+            raise HTTPException(402, f"Free plan watchlist is limited to {FREE_WATCHLIST_MAX} symbols. Upgrade to Pro for unlimited.")
     try:
         await db.watchlist.insert_one({
             "user_id": user["id"], "symbol": normalized,
@@ -608,6 +649,8 @@ async def root():
     return {"service": "ApexTrade Pro API", "status": "ok"}
 
 app.include_router(api)
+app.include_router(make_payments_router(db, get_current_user))
+app.include_router(make_webhook_router(db))
 
 app.add_middleware(
     CORSMiddleware,

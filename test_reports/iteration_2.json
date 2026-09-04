@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 2 full-stack test of ApexTrade Pro: Stripe payments (plans/checkout/status/history/webhook), fulfilment + entitlements, free-tier 402 limits (watchlist 5, resets 3), candlestick/area chart mode, pricing/success/cancel pages, market-data + trading + Google-session regression. 20/20 pytest backend tests pass. Frontend flows all pass, including a REAL Stripe test-card payment (4242...) for unlimited_lifetime: /payment/success reached data-state='paid', header switched to LIFETIME pro-badge, upgrade-nav-btn disappeared, entitlements.limits_removed=true and previously-402 watchlist/reset calls then returned 200. Only minor UI/UX and one security-hardening issue found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/payments/status/{session_id}", "issue": "No auth and no ownership check. Any anonymous caller with a session_id can read payment status AND trigger _fulfill_via (grants entitlements to the tx owner). Add Depends(get_current_user) and assert rec['user_id'] == user['id']."},
+      {"endpoint": "GET /api/payments/plans, POST /api/payments/checkout", "issue": "Blocking sync stripe.Price.list()/Session.create() calls inside async handlers block the event loop; wrap in run_in_threadpool or cache price ids."},
+      {"endpoint": "GET /api/payments/plans", "issue": "Silently skips plans whose Stripe price is missing/inactive and still returns 200 — pricing page could render fewer than 3 plans with no error signal."},
+      {"endpoint": "POST /api/payments/checkout", "issue": "automatic_tax adds VAT on top of the advertised price (test: $49 plan -> US$59.29 total due, VAT 21%). Not a bug per se but the pricing page shows no '+ applicable tax' note."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Markets.jsx star/watch button", "issue": "watch-btn-{SYM} never reflects existing watchlist membership (symbols already on the watchlist render unhighlighted, text-slate-400), so it looks like an 'add' action only. Additionally after a 402 rejection the star stays visually highlighted (optimistic state not reverted), showing a symbol as watchlisted when the add failed.", "selector": "[data-testid=\"watch-btn-NVDA\"]", "priority": "MEDIUM"},
+      {"component": "sonner toast (402 handler in lib/api.js)", "issue": "402 limit toast auto-dismisses in ~3s; the 'Upgrade' action button is detached before a user can reliably click it (Playwright click failed because the element vanished). Increase duration (e.g. 8-10s) for actionable 402 toasts.", "selector": "[data-sonner-toast] button", "priority": "MEDIUM"},
+      {"component": "Trade.jsx header stats", "issue": "'OPEN' stat renders as an em-dash placeholder for AAPL while day high/low/volume populate — open price not mapped from the chart/quote payload.", "selector": "OPEN stat card", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Pricing page", "issues": ["Prices shown ($9.99/$79/$49) exclude the VAT Stripe adds at checkout; add a '+ tax where applicable' hint to avoid surprise at Stripe (observed $49 -> $59.29)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/iteration2.xml"
+  ],
+  "action_items": [
+    "Require auth + ownership check on GET /api/payments/status/{session_id} (currently anonymous; can trigger fulfilment).",
+    "Markets page: reflect current watchlist membership in watch-btn state and revert optimistic highlight on 402/error.",
+    "Increase 402 toast duration so the 'Upgrade' action is clickable.",
+    "Move blocking stripe.Price.list/Session.create off the event loop (threadpool) or cache price IDs.",
+    "Optional: mention tax-exclusive pricing on /pricing; fill the 'OPEN' stat on the Trade page."
+  ],
+  "critical_code_review_comments": [
+    "payments.get_status is unauthenticated and calls _fulfill_via — an attacker with a session_id can force entitlement grants; add auth + user ownership assertion.",
+    "Sync Stripe SDK calls inside async FastAPI handlers (plans/checkout) will serialize requests under load.",
+    "_fulfill_via correctly uses find_one_and_update with fulfilled:{$ne:true} — verified idempotent (fulfilled_at unchanged across repeated status polls); keep this pattern for webhook path too."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new)",
+    "/app/backend/tests/conftest.py (new)"
+  ],
+  "success_rate": {"backend": "100% (20/20 pytest)", "frontend": "100% of tested flows passed (3 minor UI/UX defects noted)"},
+  "seed_data_creation": "Created and DELETED throwaway users (email prefix test_qa_*) plus their watchlist/orders/positions/transactions/payment_transactions. Deleted the 2 pending admin payment_transactions created by UI checkout tests. admin@apextrade.com and trader@apextrade.com verified unchanged (no limits_removed, no pro_until, reset_count unset). One real Stripe sandbox test-mode payment of $49+VAT was completed on a throwaway user (now deleted).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@apextrade.com / admin123 (verified working via demo-login-btn)",
+  "context_for_next_testing_agent": "Backend suite lives at /app/backend/tests/backend_test.py + conftest.py (pytest, uses REACT_APP_BACKEND_URL and pymongo for fulfilment simulation/cleanup). NOTE: emails are lowercased server-side, so mongo lookups by email must use lowercase. api/admin_client fixtures are separate sessions (login sets an httpOnly cookie — never reuse the anonymous session after login). Stripe hosted checkout is Link-managed: to automate card entry click input[type=radio] (first = Card) then fill #cardNumber/#cardExpiry/#cardCvc/#billingName and submit button[type=submit] with force=True. Verified: candle default (80 rects), area toggle + apex_chart_mode localStorage persistence, timeframe buttons in candle mode, /payment/cancel, /payment/success without session_id (data-state=error).",
+  "rca_of_the_issue": "No functional defect blocking release. Markets star-state bug: Markets.jsx keeps only a local optimistic 'added' set and never loads /api/watchlist, so membership is not rendered and a 402 failure is not rolled back. Toast issue: sonner default duration (~3-4s) applied to the 402 toast that carries an action button. Payments status endpoint lacks the Depends(get_current_user) that checkout/history have."
+}

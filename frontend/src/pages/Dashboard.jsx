@@ -56,7 +56,7 @@ export default function Dashboard() {
       toast.success(`Portfolio reset to ${fmtMoney(Number(resetVal))}`);
       setResetOpen(false);
       await Promise.all([load(), refresh()]);
-    } catch { toast.error("Reset failed"); }
+    } catch (err) { if (!err.handled) toast.error("Reset failed"); }
   };
 
   const closePosition = async (pos) => {
