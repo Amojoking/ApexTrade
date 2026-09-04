@@ -1,0 +1,36 @@
+{
+  "summary": "First-finish smoke test of ApexTrade Pro (backend + frontend). All critical backend endpoints and the primary UI flow work end-to-end. No blockers.",
+  "tested_scope": ["frontend", "backend", "auth", "integration"],
+  "passed": [
+    "GET /api/ -> 200 {status:ok}",
+    "POST /api/auth/login (admin@apextrade.com/admin123) -> 200 with user + JWT",
+    "GET /api/auth/me with Bearer -> 200",
+    "POST /api/auth/register creates user with starting_balance honored (75000 test) and returns token",
+    "GET /api/market/quote?symbols=AAPL,MSFT -> 200 with live prices",
+    "GET /api/market/quote?symbols=BTC&asset_type=crypto normalizes to BTC-USD",
+    "GET /api/market/chart/AAPL?range=1d&interval=5m -> 200 with meta and candles",
+    "GET /api/market/curated (stock/crypto/etf) -> 200 each returns 10+ items in {items:[...]} shape",
+    "GET /api/market/ticker -> 200 with items[]",
+    "GET /api/market/search?q=tesla -> 200 with TSLA result",
+    "POST /api/orders market BUY 2 AAPL -> filled, cash reduced correctly, position created",
+    "GET /api/portfolio shows position with market_value>0 and unrealized_pl field",
+    "SELL 1 reduces qty; SELL remaining closes/deletes position",
+    "Insufficient quantity -> 400 'Insufficient position quantity'",
+    "Insufficient cash -> 400 'Insufficient cash balance'",
+    "Limit BUY AAPL at $10 (far below market) stored as status=open with limit_price=10; DELETE /api/orders/{id} cancels successfully",
+    "POST /api/portfolio/deposit {amount:5000} -> 200 {ok:true}",
+    "POST /api/portfolio/reset {new_balance:50000} -> 200",
+    "POST/GET/DELETE /api/watchlist for TSLA works; GET returns items with price + change_percent",
+    "Frontend /login renders and demo-login-btn signs in and lands on /",
+    "Dashboard renders Total Equity $100,000, Cash $100,000, STOCKS/CRYPTOS/ETFS movers, and live ticker; portfolio+curated API calls all 200"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": [
+    "Curated/ticker endpoints return {items:[...]} rather than a raw list; frontend consumes .items so this is consistent, but the review spec described a 'list' shape — flagging as informational only.",
+    "Initial dashboard render briefly shows $0.0000 in stat cards while /api/portfolio is in flight; resolves within ~2s. Not a blocker."
+  ]
+}

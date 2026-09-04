@@ -1,0 +1,139 @@
+{
+  "project_title": "ApexTrade Pro - Paper Trading Terminal (Stocks, Crypto, ETFs)",
+  "app_type": "dashboard / saas_app (pro trading terminal)",
+  "theme": "dark",
+  "archetype": "THE PERFORMANCE PRO / TRADING TERMINAL",
+  "file_type_extension": ".js / .jsx",
+  "instructions_to_main_agent": [
+    "Build a production-grade paper trading platform with interactive charts (candlestick & line), order book depth visualizer, real-time ticker tape, multi-asset search (Stocks, Crypto, ETFs), order execution forms (Market, Limit, Stop-Loss), portfolio analytics, transaction history, and adjustable $100,000 paper balance management.",
+    "Implement a dark high-density Pro Trader UI inspired by TradingView and Webull Pro Desktop. Use strict grid panels with 1px borders (#1E222D / #2A2E39), tabular numbers for pricing (`font-mono tabular-nums`), and explicit green/red market semantics.",
+    "All interactive and key data display elements MUST include `data-testid` attributes (e.g. `data-testid=\"buy-order-button\"`, `data-testid=\"portfolio-total-value\"`, `data-testid=\"timeframe-1d-btn\"`).",
+    "Do NOT use transparent backgrounds for dropdowns, popovers, or modal overlays. Always use solid surfaces like `bg-[#131722]` or `bg-[#1E222D]` with crisp borders.",
+    "Use lucide-react or @heroicons/react for icons. Do NOT use emojis as UI icons."
+  ],
+  "typography": {
+    "font_families": {
+      "headings": "Chivo, Outfit, or System-UI sans-serif",
+      "body": "Inter, DM Sans, or -apple-system",
+      "numbers_and_prices": "JetBrains Mono, Fira Code, or monospace with `tabular-nums` class"
+    },
+    "scale": {
+      "h1_hero": "text-3xl md:text-4xl lg:text-5xl font-extrabold tracking-tight",
+      "h2_section": "text-xl md:text-2xl font-bold tracking-tight text-slate-100",
+      "h3_panel": "text-base md:text-lg font-semibold text-slate-200",
+      "h4_card": "text-sm font-semibold text-slate-300 uppercase tracking-wider",
+      "body": "text-sm font-normal text-slate-300 leading-normal",
+      "caption": "text-xs font-medium text-slate-400",
+      "price_large": "font-mono text-2xl md:text-3xl font-bold tracking-tight tabular-nums",
+      "price_medium": "font-mono text-lg md:text-xl font-semibold tabular-nums",
+      "price_small": "font-mono text-xs md:text-sm font-medium tabular-nums"
+    }
+  },
+  "colors": {
+    "background_main": "#0B0E14",
+    "background_card_panel": "#131722",
+    "background_card_secondary": "#1E222D",
+    "border_subtle": "#2A2E39",
+    "border_focus": "#363A45",
+    "text_primary": "#E1E3EA",
+    "text_secondary": "#787B86",
+    "text_muted": "#50535E",
+    "market_bull_green": "#089981",
+    "market_bull_green_bg": "rgba(8, 153, 129, 0.12)",
+    "market_bear_red": "#F23645",
+    "market_bear_red_bg": "rgba(242, 54, 69, 0.12)",
+    "primary_cta_blue": "#2962FF",
+    "primary_cta_hover": "#1E53E5",
+    "accent_amber": "#FFB703",
+    "accent_purple": "#8A2BE2"
+  },
+  "visual_enhancers": {
+    "ticker_tape": "Top full-width streaming ticker tape showing live price feeds, % change with green/red status indicators, and quick click-to-trade shortcuts.",
+    "grid_layout": "Bento density layout with 1px border dividers (`border-[#2A2E39]`), zero layout gaps or precise gap-2/gap-3 spacing.",
+    "order_book_depth": "Visual order depth bars with opacity fill (`bg-[#089981]/15` for bids, `bg-[#F23645]/15` for asks) indicating cumulative order volume.",
+    "active_indicator": "Active tab/timeframe indicator with glow outline or solid pill indicator in `#2962FF`.",
+    "toast_notifications": "Use `sonner` (`/app/frontend/src/components/ui/sonner.jsx`) for trade executions, price alerts, and cash balance updates."
+  },
+  "layout_blueprints": {
+    "login_signup": {
+      "path": "/login & /signup",
+      "structure": "Split screen. Left panel: Live interactive mini-chart ticker showing $100,000 paper trading simulation stats & features. Right panel: Solid `#131722` card with login/signup form, paper account setup ($100,000 default balance selector), and demo quick-login button (`data-testid=\"demo-login-btn\"`)."
+    },
+    "dashboard": {
+      "path": "/",
+      "structure": "Top Ticker Tape Header -> Navigation Bar -> 4-Column Grid Layout. (1) Portfolio Summary Card ($100,000 Cash, Invested Value, Daily P/L, Total ROI %, Reset Balance button). (2) Main Portfolio Equity Growth Line/Area Chart. (3) Active Asset Allocations Donut/Pie breakdown (Stocks vs Crypto vs ETFs). (4) Watchlist Panel with quick Search & Filter tabs. Bottom section: Active Positions Table with Real-time P/L and Close Position buttons."
+    },
+    "trade_chart_page": {
+      "path": "/trade/:symbol",
+      "structure": "Header Info Bar (Symbol, Price, 24h High/Low/Vol) -> Main Workstation split: Left (65%): Interactive Recharts/Chart Canvas with Candlestick/Line view, timeframe selector (1D, 1W, 1M, 1Y, ALL), indicators overlay toggle. Middle (20%): Real-time Order Book & Recent Trades Stream. Right (15%): Buy/Sell Order Form (Market / Limit / Stop Order, Quantity, Leverage/Paper Cash calculator, Quick % buttons 25%, 50%, 75%, 100%)."
+    },
+    "markets_browser": {
+      "path": "/markets",
+      "structure": "Top Stats Bar (Top Gainers, Top Losers, Most Active) -> Asset Category Tabs (All, Stocks, Crypto, ETFs) -> Search & Filter Bar -> High density Table with Symbol, Name, Price, 24h Change %, 24h Volume, Sparkline Chart column, and Direct Trade Action Button (`data-testid=\"trade-symbol-btn\"`)."
+    },
+    "portfolio": {
+      "path": "/portfolio",
+      "structure": "Top Portfolio Breakdown Header -> P/L Performance Analytics -> Asset Holdings Table (Asset, Allocation %, Avg Buy Price, Current Price, Un-realized P/L, Actions: Buy More / Sell) -> Cash Balance Management Modal (Deposit Paper Cash, Adjust Balance, Reset Portfolio)."
+    },
+    "orders_history": {
+      "path": "/orders",
+      "structure": "Tabs (Open Orders, Filled Orders, Cancelled Orders, Trade History) -> Filter by Asset Type -> Table with Order ID, Timestamp, Symbol, Type (BUY/SELL), Order Class (Market/Limit), Executed Price, Amount, Total Value, Status Badge."
+    }
+  },
+  "component_mapping": {
+    "tables": "/app/frontend/src/components/ui/table.jsx customized with dark background `#131722`, sticky header `#1E222D`, and mono price columns.",
+    "tabs": "/app/frontend/src/components/ui/tabs.jsx with tight compact tab lists `h-8 bg-[#0B0E14] text-xs`.",
+    "dialogs": "/app/frontend/src/components/ui/dialog.jsx for cash balance deposit/reset and position closing confirmation.",
+    "toasts": "/app/frontend/src/components/ui/sonner.jsx for trade execution notifications.",
+    "select": "/app/frontend/src/components/ui/select.jsx for order types and timeframe selectors."
+  },
+  "chart_integration_guidance": {
+    "library": "Recharts / Custom Canvas or SVG chart",
+    "style": "Dark background `#131722`, stroke `#089981` for upward trends, stroke `#F23645` for downward trends, linear gradient area fills with 0.2 opacity.",
+    "tooltip": "Custom dark tooltip with `bg-[#1E222D] border border-[#2A2E39] text-xs font-mono shadow-xl`."
+  },
+  "data_testid_specifications": [
+    "data-testid=\"top-ticker-tape\"",
+    "data-testid=\"nav-link-dashboard\"",
+    "data-testid=\"nav-link-trade\"",
+    "data-testid=\"nav-link-markets\"",
+    "data-testid=\"nav-link-portfolio\"",
+    "data-testid=\"nav-link-orders\"",
+    "data-testid=\"user-account-menu\"",
+    "data-testid=\"portfolio-total-value\"",
+    "data-testid=\"portfolio-cash-balance\"",
+    "data-testid=\"portfolio-unrealized-pl\"",
+    "data-testid=\"reset-balance-button\"",
+    "data-testid=\"deposit-cash-button\"",
+    "data-testid=\"market-search-input\"",
+    "data-testid=\"timeframe-1d-btn\"",
+    "data-testid=\"timeframe-1w-btn\"",
+    "data-testid=\"timeframe-1m-btn\"",
+    "data-testid=\"timeframe-1y-btn\"",
+    "data-testid=\"chart-type-candlestick-btn\"",
+    "data-testid=\"chart-type-line-btn\"",
+    "data-testid=\"order-type-market-tab\"",
+    "data-testid=\"order-type-limit-tab\"",
+    "data-testid=\"buy-tab-btn\"",
+    "data-testid=\"sell-tab-btn\"",
+    "data-testid=\"order-amount-input\"",
+    "data-testid=\"submit-order-button\"",
+    "data-testid=\"positions-table\"",
+    "data-testid=\"close-position-btn\"",
+    "data-testid=\"watchlist-add-btn\""
+  ],
+  "image_urls": {
+    "trading_backgrounds": [
+      {
+        "category": "hero_banner",
+        "description": "Stock market candlestick chart on dark screen",
+        "url": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwxfHxmaW5hbmNpYWwlMjBzdG9jayUyMGNoYXJ0JTIwZGFyayUyMHRyYWRpbmclMjB0ZXJtaW5hbHxlbnwwfHx8fDE3ODg1NjA2MDd8MA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "crypto_preview",
+        "description": "Bitcoin trading chart on dark screen",
+        "url": "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwyfHxmaW5hbmNpYWwlMjBzdG9jayUyMGNoYXJ0JTIwZGFyayUyMHRyYWRpbmclMjB0ZXJtaW5hbHxlbnwwfHx8fDE3ODg1NjA2MDd8MA&ixlib=rb-4.1.0&q=85"
+      }
+    ]
+  }
+}

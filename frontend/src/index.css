@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Chivo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+body {
+  margin: 0;
+  background: #0B0E14;
+  color: #E1E3EA;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-display { font-family: 'Chivo', system-ui, sans-serif; }
+.font-mono, code {
+  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+@layer base {
+  :root {
+    --background: 220 22% 6%;
+    --foreground: 220 20% 91%;
+    --card: 220 20% 11%;
+    --card-foreground: 220 20% 91%;
+    --popover: 220 20% 11%;
+    --popover-foreground: 220 20% 91%;
+    --primary: 218 100% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 12% 15%;
+    --secondary-foreground: 220 20% 91%;
+    --muted: 220 12% 15%;
+    --muted-foreground: 220 8% 55%;
+    --accent: 220 12% 15%;
+    --accent-foreground: 220 20% 91%;
+    --destructive: 356 88% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 12% 18%;
+    --input: 220 12% 18%;
+    --ring: 218 100% 58%;
+    --radius: 0.375rem;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+
+/* Ticker tape marquee */
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-track {
+  animation: ticker-scroll 90s linear infinite;
+  will-change: transform;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #0B0E14; }
+::-webkit-scrollbar-thumb { background: #2A2E39; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #363A45; }
+
+/* Grid pattern for auth backdrop */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(42,46,57,0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(42,46,57,0.35) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.glow-blue { box-shadow: 0 0 40px rgba(41,98,255,0.25); }
