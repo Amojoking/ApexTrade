@@ -25,6 +25,7 @@ db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGORITHM = "HS256"
+EMERGENT_AUTH_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 
 app = FastAPI(title="ApexTrade Pro API")
 api = APIRouter(prefix="/api")
@@ -47,12 +48,44 @@ def create_access_token(user_id: str, email: str) -> str:
                "exp": datetime.now(timezone.utc) + timedelta(days=7)}
     return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
+def _public_user_from_doc(user: dict) -> dict:
+    user["id"] = str(user.pop("_id"))
+    user.pop("password_hash", None)
+    return user
+
+async def _user_from_session_token(session_token: str) -> Optional[dict]:
+    sess = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
+    if not sess:
+        return None
+    expires_at = sess["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(401, "Session expired")
+    user = await db.users.find_one({"_id": ObjectId(sess["user_id"])})
+    if not user:
+        raise HTTPException(401, "User not found")
+    return _public_user_from_doc(user)
+
 async def get_current_user(request: Request) -> dict:
+    session_token = request.cookies.get("session_token")
     token = request.cookies.get("access_token")
+    bearer = None
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        bearer = auth[7:]
+    if session_token:
+        user = await _user_from_session_token(session_token)
+        if user:
+            return user
+    if bearer and not bearer.count(".") == 2:
+        user = await _user_from_session_token(bearer)
+        if user:
+            return user
     if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
+        token = bearer
     if not token:
         raise HTTPException(401, "Not authenticated")
     try:
@@ -60,9 +93,7 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(401, "User not found")
-        user["id"] = str(user.pop("_id"))
-        user.pop("password_hash", None)
-        return user
+        return _public_user_from_doc(user)
     except pyjwt.ExpiredSignatureError:
         raise HTTPException(401, "Token expired")
     except pyjwt.InvalidTokenError:
@@ -219,6 +250,7 @@ def set_auth_cookie(response: Response, token: str):
 def user_public(u: dict) -> dict:
     return {"id": u.get("id") or str(u.get("_id")), "email": u["email"], "name": u.get("name", ""),
             "role": u.get("role", "user"), "cash_balance": u.get("cash_balance", 0.0),
+            "picture": u.get("picture"),
             "starting_balance": u.get("starting_balance", 100000.0)}
 
 @api.post("/auth/register")
@@ -244,7 +276,7 @@ async def register(body: RegisterIn, response: Response):
 async def login(body: LoginIn, response: Response):
     email = body.email.lower()
     user = await db.users.find_one({"email": email})
-    if not user or not verify_password(body.password, user["password_hash"]):
+    if not user or not user.get("password_hash") or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
     uid = str(user["_id"])
     token = create_access_token(uid, email)
@@ -253,9 +285,53 @@ async def login(body: LoginIn, response: Response):
     return {"user": user_public(user), "token": token}
 
 @api.post("/auth/logout")
-async def logout(response: Response):
-    response.delete_cookie("access_token", path="/")
+async def logout(request: Request, response: Response):
+    session_token = request.cookies.get("session_token")
+    if session_token:
+        await db.user_sessions.delete_one({"session_token": session_token})
+    response.delete_cookie("access_token", path="/", secure=True, samesite="none")
+    response.delete_cookie("session_token", path="/", secure=True, samesite="none")
     return {"ok": True}
+
+class GoogleSessionIn(BaseModel):
+    session_id: str
+
+@api.post("/auth/google/session")
+async def google_session(body: GoogleSessionIn, response: Response):
+    # Exchange Emergent Auth session_id for user profile (must be done server-side)
+    async with httpx.AsyncClient(timeout=15) as hc:
+        r = await hc.get(EMERGENT_AUTH_SESSION_URL, headers={"X-Session-ID": body.session_id})
+    if r.status_code != 200:
+        raise HTTPException(401, "Invalid or expired Google session")
+    data = r.json()
+    email = data["email"].lower()
+    user = await db.users.find_one({"email": email})
+    if user:
+        updates = {"picture": data.get("picture")}
+        if not user.get("name") and data.get("name"):
+            updates["name"] = data["name"]
+        await db.users.update_one({"_id": user["_id"]}, {"$set": updates})
+        user.update(updates)
+    else:
+        user = {
+            "email": email, "name": data.get("name") or email.split("@")[0],
+            "picture": data.get("picture"), "role": "user", "auth_provider": "google",
+            "cash_balance": 100000.0, "starting_balance": 100000.0,
+            "created_at": datetime.now(timezone.utc),
+        }
+        res = await db.users.insert_one(user)
+        user["_id"] = res.inserted_id
+    uid = str(user["_id"])
+    session_token = data["session_token"]
+    await db.user_sessions.insert_one({
+        "user_id": uid, "session_token": session_token,
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+        "created_at": datetime.now(timezone.utc),
+    })
+    response.set_cookie("session_token", session_token, httponly=True, secure=True,
+                        samesite="none", max_age=60*60*24*7, path="/")
+    user["id"] = uid
+    return {"user": user_public(user), "token": session_token}
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):

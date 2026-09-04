@@ -18,7 +18,11 @@ export function AuthProvider({ children }) {
     }
   };
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    // Returning from Google OAuth: AuthCallback exchanges session_id first, skip /me
+    if (window.location.hash?.includes("session_id=")) { setLoading(false); return; }
+    refresh();
+  }, []);
 
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });

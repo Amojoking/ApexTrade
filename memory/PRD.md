@@ -24,8 +24,15 @@
 - Portfolio: allocation pie, holdings table with allocation %
 - Orders: filter tabs (All/Filled/Open/Cancelled), cancel open orders
 
+## Google Sign-In (Jun 2026)
+- Emergent-managed Google Auth added alongside email/password. Button on Login + Signup (`GoogleButton.jsx`).
+- Redirect: `window.location.origin + "/"` (never hardcoded). Callback `#session_id=` handled by `pages/AuthCallback.jsx` via `AppRouter` in `App.js` (reads `useLocation().hash`).
+- Backend `POST /api/auth/google/session` exchanges session_id server-side, upserts user by email (new users get $100k), stores `user_sessions` (7d), sets httpOnly `session_token` cookie.
+- `get_current_user` accepts `session_token` cookie/Bearer first, then JWT `access_token`. Logout deletes session + clears both cookies.
+- Testing playbook: `/app/auth_testing.md`
+
 ## Backend Endpoints
-- `/api/auth/{register,login,logout,me}`
+- `/api/auth/{register,login,logout,me}`, `/api/auth/google/session`
 - `/api/market/{quote,chart/{symbol},search,curated,ticker}`
 - `/api/portfolio` GET, `/api/portfolio/reset`, `/api/portfolio/deposit`
 - `/api/orders` GET/POST, `/api/orders/{oid}` DELETE

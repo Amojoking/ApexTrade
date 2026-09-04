@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { TrendingUp, ArrowRight } from "lucide-react";
+import { GoogleButton } from "@/components/GoogleButton";
 
 export default function Login() {
   const { login } = useAuth();
@@ -123,13 +124,16 @@ export default function Login() {
             <span className="text-xs text-slate-500 uppercase tracking-wider">or</span>
             <div className="flex-1 h-px bg-[#2A2E39]" />
           </div>
-          <button
-            onClick={demo}
-            data-testid="demo-login-btn"
-            className="w-full bg-[#131722] hover:bg-[#1E222D] border border-[#2A2E39] text-slate-200 font-semibold py-2.5 rounded transition"
-          >
-            Try Demo Account
-          </button>
+          <div className="space-y-3">
+            <GoogleButton />
+            <button
+              onClick={demo}
+              data-testid="demo-login-btn"
+              className="w-full bg-[#131722] hover:bg-[#1E222D] border border-[#2A2E39] text-slate-200 font-semibold py-2.5 rounded transition"
+            >
+              Try Demo Account
+            </button>
+          </div>
           <p className="text-center text-sm text-slate-400 mt-6">
             New to ApexTrade?{" "}
             <Link to="/signup" className="text-[#2962FF] hover:underline" data-testid="link-signup">

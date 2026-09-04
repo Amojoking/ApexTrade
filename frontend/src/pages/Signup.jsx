@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { TrendingUp, ArrowRight } from "lucide-react";
+import { GoogleButton } from "@/components/GoogleButton";
 
 export default function Signup() {
   const { register } = useAuth();
@@ -109,6 +110,12 @@ export default function Signup() {
               {loading ? "Creating..." : (<>Create account <ArrowRight size={16} /></>)}
             </button>
           </form>
+          <div className="flex items-center gap-3 my-6">
+            <div className="flex-1 h-px bg-[#2A2E39]" />
+            <span className="text-xs text-slate-500 uppercase tracking-wider">or</span>
+            <div className="flex-1 h-px bg-[#2A2E39]" />
+          </div>
+          <GoogleButton label="Sign up with Google" />
           <p className="text-center text-sm text-slate-400 mt-6">
             Already have an account?{" "}
             <Link to="/login" className="text-[#2962FF] hover:underline" data-testid="link-login">Sign in</Link>
