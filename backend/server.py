@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from bson import ObjectId
-from payments import entitlements, make_router as make_payments_router, make_webhook_router, FREE_WATCHLIST_MAX, FREE_RESET_MAX
+from payments import entitlements, make_router as make_payments_router, make_webhook_router, FREE_WATCHLIST_MAX, FREE_RESET_MAX, sync_live_for_user
 
 # ---------- Setup ----------
 mongo_url = os.environ['MONGO_URL']
@@ -366,7 +366,27 @@ async def google_session(body: GoogleSessionIn, response: Response):
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
+    last = user.get("last_stripe_sync")
+    if last is not None and not isinstance(last, datetime):
+        last = None
+    if last is None or (datetime.now(timezone.utc) - last.replace(tzinfo=timezone.utc)) > timedelta(hours=6):
+        asyncio.create_task(_safe_sync(user))
     return user_public(user)
+
+async def _safe_sync(user: dict):
+    try:
+        await sync_live_for_user(db, user)
+    except Exception as e:
+        log.warning("live stripe sync failed for %s: %s", user["email"], e)
+
+class ProfileIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+@api.patch("/auth/profile")
+async def update_profile(body: ProfileIn, user: dict = Depends(get_current_user)):
+    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"name": body.name.strip()}})
+    doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    return user_public(doc)
 
 # ---------- Market Endpoints ----------
 @api.get("/market/quote")
@@ -462,8 +482,11 @@ async def get_portfolio(user: dict = Depends(get_current_user)):
     total_value = 0.0
     total_cost = 0.0
     async for p in positions_cursor:
+        prev_close = None
         try:
             price = await _current_price(p["symbol"], p.get("asset_type", "stock"))
+            q = _quote_cache.get(_normalize_symbol(p["symbol"], p.get("asset_type", "stock")))
+            prev_close = q[1].get("regularMarketPreviousClose") if q else None
         except Exception:
             price = p.get("avg_price", 0.0)
         qty = p["quantity"]
@@ -480,7 +503,7 @@ async def get_portfolio(user: dict = Depends(get_current_user)):
             "quantity": qty, "avg_price": p["avg_price"],
             "current_price": price, "market_value": mv,
             "cost_basis": cost, "unrealized_pl": pl,
-            "unrealized_pl_pct": pl_pct,
+            "unrealized_pl_pct": pl_pct, "prev_close": prev_close,
         })
     user_doc = await db.users.find_one({"_id": ObjectId(uid)})
     cash = user_doc.get("cash_balance", 0.0)
@@ -488,6 +511,7 @@ async def get_portfolio(user: dict = Depends(get_current_user)):
     equity = cash + total_value
     total_pl = equity - starting
     total_pl_pct = (total_pl / starting * 100) if starting > 0 else 0.0
+    asyncio.create_task(_snapshot(uid, equity, cash))
     return {
         "cash_balance": cash,
         "starting_balance": starting,
@@ -496,8 +520,69 @@ async def get_portfolio(user: dict = Depends(get_current_user)):
         "unrealized_pl": total_value - total_cost,
         "total_pl": total_pl,
         "total_pl_pct": total_pl_pct,
+        "day_pl": sum(_day_pl(p) for p in positions),
         "positions": positions,
     }
+
+def _day_pl(pos: dict) -> float:
+    prev = pos.get("prev_close")
+    return (pos["current_price"] - prev) * pos["quantity"] if prev else 0.0
+
+async def _snapshot(uid: str, equity: float, cash: float):
+    # One point per user per hour; enough for a smooth equity curve
+    bucket = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    await db.portfolio_snapshots.update_one(
+        {"user_id": uid, "t": bucket},
+        {"$set": {"equity": equity, "cash": cash}}, upsert=True)
+
+@api.get("/portfolio/history")
+async def portfolio_history(user: dict = Depends(get_current_user)):
+    cur = db.portfolio_snapshots.find({"user_id": user["id"]}, {"_id": 0, "user_id": 0}).sort("t", 1).limit(2000)
+    points = [{"t": s["t"].isoformat(), "equity": s["equity"], "cash": s.get("cash")} async for s in cur]
+    doc = await db.users.find_one({"_id": ObjectId(user["id"])})
+    created = doc.get("created_at")
+    if created and (not points or points[0]["equity"] != doc.get("starting_balance")):
+        points.insert(0, {"t": created.isoformat() if isinstance(created, datetime) else created,
+                          "equity": doc.get("starting_balance", 100000.0), "cash": doc.get("starting_balance", 100000.0)})
+    return {"points": points}
+
+@api.get("/leaderboard")
+async def leaderboard(user: dict = Depends(get_current_user)):
+    users = [u async for u in db.users.find({}, {"name": 1, "email": 1, "cash_balance": 1, "starting_balance": 1, "picture": 1, "limits_removed": 1, "pro_until": 1})]
+    positions = [p async for p in db.positions.find({}, {"user_id": 1, "symbol": 1, "asset_type": 1, "quantity": 1, "avg_price": 1})]
+    syms = list({_normalize_symbol(p["symbol"], p.get("asset_type", "stock")) for p in positions})
+    quotes = {q["symbol"]: q.get("regularMarketPrice") for q in await yf_quote(syms)} if syms else {}
+    value_by_user = {}
+    for p in positions:
+        price = quotes.get(_normalize_symbol(p["symbol"], p.get("asset_type", "stock"))) or p["avg_price"]
+        value_by_user[p["user_id"]] = value_by_user.get(p["user_id"], 0.0) + price * p["quantity"]
+    rows = []
+    for u in users:
+        uid = str(u["_id"])
+        starting = u.get("starting_balance") or 100000.0
+        equity = u.get("cash_balance", 0.0) + value_by_user.get(uid, 0.0)
+        rows.append({"user_id": uid, "name": u.get("name") or u["email"].split("@")[0], "picture": u.get("picture"),
+                     "equity": equity, "roi_pct": (equity - starting) / starting * 100,
+                     "pro": bool(u.get("limits_removed")) or bool(entitlements(u)["is_pro"]),
+                     "positions": sum(1 for p in positions if p["user_id"] == uid), "is_me": uid == user["id"]})
+    rows.sort(key=lambda r: r["roi_pct"], reverse=True)
+    for i, r in enumerate(rows, 1):
+        r["rank"] = i
+    me = next((r for r in rows if r["is_me"]), None)
+    return {"items": rows[:50], "me": me, "total": len(rows)}
+
+@api.get("/market/movers")
+async def movers():
+    items = [(s, n, t) for t, lst in CURATED.items() for s, n in lst]
+    quotes = {q["symbol"]: q for q in await yf_quote([s for s, _, _ in items])}
+    rows = []
+    for s, n, t in items:
+        q = quotes.get(s)
+        if q and q.get("regularMarketChangePercent") is not None:
+            rows.append({"symbol": s, "name": n, "asset_type": t, "price": q["regularMarketPrice"],
+                         "change_percent": q["regularMarketChangePercent"]})
+    rows.sort(key=lambda r: r["change_percent"], reverse=True)
+    return {"gainers": rows[:6], "losers": list(reversed(rows[-6:]))}
 
 @api.post("/portfolio/reset")
 async def reset_portfolio(body: ResetIn, user: dict = Depends(get_current_user)):
